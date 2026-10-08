@@ -65,14 +65,10 @@ def main():
     env.reset()
 
     articulation.write_joint_armature_to_sim(armature, joint_ids=joint_ids, env_ids=torch.arange(len(armature), device=env.unwrapped.device))
-    articulation.data.default_joint_armature[:, joint_ids] = armature
     articulation.write_joint_viscous_friction_coefficient_to_sim(damping, joint_ids=joint_ids, env_ids=torch.arange(len(damping), device=env.unwrapped.device))
-    articulation.data.default_joint_viscous_friction_coeff[:, joint_ids] = damping
     # note: modeling coulomb friction if joint_friction = joint_dynamic_friction
     articulation.write_joint_friction_coefficient_to_sim(friction, joint_ids=joint_ids, env_ids=torch.tensor([0], device=env.unwrapped.device))
-    articulation.data.default_joint_friction_coeff[:, joint_ids] = friction
     articulation.write_joint_dynamic_friction_coefficient_to_sim(friction, joint_ids=joint_ids, env_ids=torch.tensor([0], device=env.unwrapped.device))
-    articulation.data.default_joint_dynamic_friction_coeff[:, joint_ids] = friction
     drive_types = articulation.actuators.keys()
     for drive_type in drive_types:
         drive_indices = articulation.actuators[drive_type].joint_indices
