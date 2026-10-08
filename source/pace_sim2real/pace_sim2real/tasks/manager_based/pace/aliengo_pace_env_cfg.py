@@ -60,7 +60,7 @@ class AliengoPaceCfg(PaceCfg):
         self.synthetic.viscous_friction = 0.5
         self.synthetic.coulomb_friction = 0.2
         self.synthetic.encoder_bias = 0.05
-        self.synthetic.delay = 5
+        self.synthetic.delay = 7
         # set bounds for parameters
         self.bounds_params[:12, 0] = 1e-4
         self.bounds_params[:12, 1] = 0.1  # armature between 1e-4 - 0.1 [kgm2]
