@@ -143,5 +143,8 @@ class PaceSim2realEnvCfg(ManagerBasedRLEnvCfg):
         # simulation settings
         self.sim.dt = 0.0025  # 400Hz simulation
         self.sim.render_interval = 4  # render at 100Hz
+        # PaceDCMotor is a custom explicit actuator, so it needs the Python actuator path (Isaac Lab >= 3.0)
+        if hasattr(self.sim, "use_newton_actuators"):
+            self.sim.use_newton_actuators = False
 
         self.scene.robot.spawn.articulation_props.fix_root_link = True
