@@ -64,14 +64,14 @@ def main():
     time_lag = torch.tensor([[5]], dtype=torch.int, device=env.unwrapped.device)
     env.reset()
 
-    articulation.write_joint_armature_to_sim(armature, joint_ids=joint_ids, env_ids=torch.arange(len(armature)))
+    articulation.write_joint_armature_to_sim(armature, joint_ids=joint_ids, env_ids=torch.arange(len(armature), device=env.unwrapped.device))
     articulation.data.default_joint_armature[:, joint_ids] = armature
-    articulation.write_joint_viscous_friction_coefficient_to_sim(damping, joint_ids=joint_ids, env_ids=torch.arange(len(damping)))
+    articulation.write_joint_viscous_friction_coefficient_to_sim(damping, joint_ids=joint_ids, env_ids=torch.arange(len(damping), device=env.unwrapped.device))
     articulation.data.default_joint_viscous_friction_coeff[:, joint_ids] = damping
     # note: modeling coulomb friction if joint_friction = joint_dynamic_friction
-    articulation.write_joint_friction_coefficient_to_sim(friction, joint_ids=joint_ids, env_ids=torch.tensor([0]))
+    articulation.write_joint_friction_coefficient_to_sim(friction, joint_ids=joint_ids, env_ids=torch.tensor([0], device=env.unwrapped.device))
     articulation.data.default_joint_friction_coeff[:, joint_ids] = friction
-    articulation.write_joint_dynamic_friction_coefficient_to_sim(friction, joint_ids=joint_ids, env_ids=torch.tensor([0]))
+    articulation.write_joint_dynamic_friction_coefficient_to_sim(friction, joint_ids=joint_ids, env_ids=torch.tensor([0], device=env.unwrapped.device))
     articulation.data.default_joint_dynamic_friction_coeff[:, joint_ids] = friction
     drive_types = articulation.actuators.keys()
     for drive_type in drive_types:
@@ -83,7 +83,7 @@ def main():
         drive_joint_idx = torch.argmax(comparison_matrix.int(), dim=0)
         articulation.actuators[drive_type].update_time_lags(time_lag)
         articulation.actuators[drive_type].update_encoder_bias(bias[:, drive_joint_idx])
-        articulation.actuators[drive_type].reset(torch.arange(env.unwrapped.num_envs))
+        articulation.actuators[drive_type].reset(torch.arange(env.unwrapped.num_envs, device=env.unwrapped.device))
 
     data_dir = project_root() / "data" / env_cfg.sim2real.robot_name
 

@@ -109,7 +109,7 @@ class CMAESOptimizer:
         self.sim_params = self._params_to_sim_params(self.params)
 
     def update_simulator(self, articulation, joint_ids, initial_position):
-        env_ids = torch.arange(len(self.sim_params[:, self.armature_idx]))
+        env_ids = torch.arange(len(self.sim_params[:, self.armature_idx]), device=self.device)
         articulation.write_joint_armature_to_sim(self.sim_params[:, self.armature_idx], joint_ids=joint_ids, env_ids=env_ids)
         articulation.data.default_joint_armature[:, joint_ids] = self.sim_params[:, self.armature_idx]
         articulation.write_joint_viscous_friction_coefficient_to_sim(self.sim_params[:, self.damping_idx], joint_ids=joint_ids, env_ids=env_ids)
