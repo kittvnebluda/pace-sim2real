@@ -49,6 +49,8 @@ class AnymalDPaceCfg(PaceCfg):
     ]
 
     def __post_init__(self):
+        self.chirp.center = [0.0, 0.2, -1.6, 0.0, 0.2, -1.6, 0.0, -0.2, 1.6, 0.0, -0.2, 1.6]
+        self.chirp.amplitude = [0.25, 0.5, -2.0, -0.25, 0.5, -2.0, 0.25, -0.5, 2.0, -0.25, -0.5, 2.0]
         # set bounds for parameters
         self.bounds_params[:12, 0] = 1e-5
         self.bounds_params[:12, 1] = 1.0  # armature between 1e-5 - 1.0 [kgm2]

@@ -115,9 +115,28 @@ class CMAESOptimizerCfg:
 
 
 @configclass
+class ChirpCfg:
+    """Excitation trajectory per joint (in ``joint_order``): target = center + amplitude * chirp, chirp in [-1, 1]."""
+    center: list[float] = MISSING  # [rad]
+    amplitude: list[float] = MISSING  # [rad], sign sets the direction
+
+
+@configclass
+class SyntheticParamsCfg:
+    """Ground-truth parameters for synthetic data collection, applied to every joint."""
+    armature: float = 0.1  # [kg m^2]
+    viscous_friction: float = 4.5  # [Nm s/rad]
+    coulomb_friction: float = 0.05  # [Nm]
+    encoder_bias: float = 0.05  # [rad]
+    delay: int = 5  # [sim steps]
+
+
+@configclass
 class PaceCfg:
     """Overall configuration for Pace Sim2Real task."""
     cmaes: CMAESOptimizerCfg = CMAESOptimizerCfg()
+    chirp: ChirpCfg = ChirpCfg()
+    synthetic: SyntheticParamsCfg = SyntheticParamsCfg()
 
     robot_name: str = MISSING
     data_dir: str = MISSING

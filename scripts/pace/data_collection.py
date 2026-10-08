@@ -61,11 +61,12 @@ def main():
     joint_order = env_cfg.sim2real.joint_order
     joint_ids = torch.tensor([articulation.joint_names.index(name) for name in joint_order], device=env.unwrapped.device)
 
-    armature = torch.tensor([0.1] * len(joint_ids), device=env.unwrapped.device).unsqueeze(0)
-    damping = torch.tensor([4.5] * len(joint_ids), device=env.unwrapped.device).unsqueeze(0)
-    friction = torch.tensor([0.05] * len(joint_ids), device=env.unwrapped.device).unsqueeze(0)  # coulomb friction
-    bias = torch.tensor([0.05] * 12, device=env.unwrapped.device).unsqueeze(0)
-    time_lag = torch.tensor([[5]], dtype=torch.int, device=env.unwrapped.device)
+    truth = env_cfg.sim2real.synthetic
+    armature = torch.tensor([truth.armature] * len(joint_ids), device=env.unwrapped.device).unsqueeze(0)
+    damping = torch.tensor([truth.viscous_friction] * len(joint_ids), device=env.unwrapped.device).unsqueeze(0)
+    friction = torch.tensor([truth.coulomb_friction] * len(joint_ids), device=env.unwrapped.device).unsqueeze(0)
+    bias = torch.tensor([truth.encoder_bias] * len(joint_ids), device=env.unwrapped.device).unsqueeze(0)
+    time_lag = torch.tensor([[truth.delay]], dtype=torch.int, device=env.unwrapped.device)
     env.reset()
 
     write_joint_properties_to_sim(
@@ -103,21 +104,10 @@ def main():
     phase = 2 * pi * (f0 * t + ((f1 - f0) / (2 * duration)) * t ** 2)
     chirp_signal = torch.sin(phase)
 
-    trajectory = torch.zeros((num_steps, len(joint_ids)), device=env.unwrapped.device)
-    trajectory[:, :] = chirp_signal.unsqueeze(-1)
-    trajectory_directions = torch.tensor(
-        [1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0, -1.0, -1.0, -1.0, -1.0, -1.0],
-        device=env.unwrapped.device
-    )
-    trajectory_bias = torch.tensor(
-        [0.0, 0.4, 0.8] * 4,
-        device=env.unwrapped.device
-    )
-    trajectory_scale = torch.tensor(
-        [0.25, 0.5, -2.0] * 4,
-        device=env.unwrapped.device
-    )
-    trajectory[:, joint_ids] = (trajectory[:, joint_ids] + trajectory_bias.unsqueeze(0)) * trajectory_directions.unsqueeze(0) * trajectory_scale.unsqueeze(0)
+    trajectory = torch.zeros((num_steps, articulation.num_joints), device=env.unwrapped.device)
+    center = torch.tensor(env_cfg.sim2real.chirp.center, device=env.unwrapped.device)
+    amplitude = torch.tensor(env_cfg.sim2real.chirp.amplitude, device=env.unwrapped.device)
+    trajectory[:, joint_ids] = center.unsqueeze(0) + amplitude.unsqueeze(0) * chirp_signal.unsqueeze(-1)
 
     write_joint_state_to_sim(articulation, trajectory[0, :].unsqueeze(0) + bias[0, joint_ids], joint_ids=None)
 
