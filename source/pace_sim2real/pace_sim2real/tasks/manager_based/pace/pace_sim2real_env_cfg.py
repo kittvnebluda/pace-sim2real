@@ -18,6 +18,9 @@ from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg
+from isaaclab_physx.physics import PhysxCfg
+from isaaclab_tasks.utils import PresetCfg
 
 from . import mdp
 
@@ -94,6 +97,14 @@ class TerminationsCfg:
 
 
 @configclass
+class PacePhysicsCfg(PresetCfg):
+    """Physics backends, selected on the command line with ``physics=<name>``."""
+    isaacsim_physx = PhysxCfg()
+    newton_mjwarp = NewtonCfg(solver_cfg=MJWarpSolverCfg(integrator="implicitfast"))  # same integrator as mjlab
+    default = isaacsim_physx
+
+
+@configclass
 class CMAESOptimizerCfg:
     """CMA-ES optimizer configuration."""
     max_iteration: int = 200
@@ -143,6 +154,8 @@ class PaceSim2realEnvCfg(ManagerBasedRLEnvCfg):
         # simulation settings
         self.sim.dt = 0.0025  # 400Hz simulation
         self.sim.render_interval = 4  # render at 100Hz
+        # parse_env_cfg resolves the preset to one concrete PhysicsCfg; Isaac Lab types the field without presets
+        self.sim.physics = PacePhysicsCfg()  # pyright: ignore[reportAttributeAccessIssue]
         # PaceDCMotor is a custom explicit actuator, so it needs the Python actuator path (Isaac Lab >= 3.0)
         if hasattr(self.sim, "use_newton_actuators"):
             self.sim.use_newton_actuators = False
