@@ -8,6 +8,9 @@ from pathlib import Path
 # optional environment-variable override
 PACE_ROOT_ENV = "PACE_ROOT"
 
+# robot models shipped with the package
+ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
+
 
 def project_root() -> Path:
     """
