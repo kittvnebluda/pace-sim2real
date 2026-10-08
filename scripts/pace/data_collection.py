@@ -7,6 +7,7 @@
 """Launch Isaac Sim Simulator first."""
 
 import argparse
+import sys
 
 from isaaclab.app import AppLauncher
 
@@ -19,8 +20,10 @@ parser.add_argument("--max_frequency", type=float, default=10.0, help="Maximum f
 parser.add_argument("--duration", type=float, default=20.0, help="Duration of the chirp signal in seconds.")
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
-# parse the arguments
-args_cli = parser.parse_args()
+# parse the arguments; the rest are Hydra overrides, e.g. physics=newton_mjwarp
+args_cli, hydra_args = parser.parse_known_args()
+# leave only the Hydra overrides in sys.argv, as Isaac Lab's own scripts do
+sys.argv = [sys.argv[0]] + hydra_args
 
 # launch omniverse app
 app_launcher = AppLauncher(args_cli)
@@ -43,7 +46,7 @@ from pace_sim2real.utils.joint_properties import write_joint_properties_to_sim, 
 def main():
     # parse configuration
     env_cfg = parse_env_cfg(
-        args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs
+        args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs, overrides=hydra_args
     )
     # create environment
     env = gym.make(args_cli.task, cfg=env_cfg)

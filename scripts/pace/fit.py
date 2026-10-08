@@ -7,6 +7,7 @@
 """Launch Isaac Sim Simulator first."""
 
 import argparse
+import sys
 
 from isaaclab.app import AppLauncher
 
@@ -16,8 +17,10 @@ parser.add_argument("--num_envs", type=int, default=4096, help="Number of enviro
 parser.add_argument("--task", type=str, default="Isaac-Pace-Anymal-D-v0", help="Name of the task.")
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
-# parse the arguments
-args_cli = parser.parse_args()
+# parse the arguments; the rest are Hydra overrides, e.g. physics=newton_mjwarp
+args_cli, hydra_args = parser.parse_known_args()
+# leave only the Hydra overrides in sys.argv, as Isaac Lab's own scripts do
+sys.argv = [sys.argv[0]] + hydra_args
 
 # launch omniverse app
 app_launcher = AppLauncher(args_cli)
@@ -40,7 +43,7 @@ def main():
     """Zero actions agent with Isaac Lab environment."""
     # parse configuration
     env_cfg = parse_env_cfg(
-        args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs
+        args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs, overrides=hydra_args
     )
     # create environment
     env = gym.make(args_cli.task, cfg=env_cfg)
