@@ -37,6 +37,7 @@ from torch import pi
 
 import pace_sim2real.tasks  # noqa: F401
 from pace_sim2real.utils import project_root
+from pace_sim2real.utils.joint_properties import write_joint_properties_to_sim, write_joint_state_to_sim
 
 
 def main():
@@ -64,11 +65,14 @@ def main():
     time_lag = torch.tensor([[5]], dtype=torch.int, device=env.unwrapped.device)
     env.reset()
 
-    articulation.write_joint_armature_to_sim(armature, joint_ids=joint_ids, env_ids=torch.arange(len(armature), device=env.unwrapped.device))
-    articulation.write_joint_viscous_friction_coefficient_to_sim(damping, joint_ids=joint_ids, env_ids=torch.arange(len(damping), device=env.unwrapped.device))
-    # note: modeling coulomb friction if joint_friction = joint_dynamic_friction
-    articulation.write_joint_friction_coefficient_to_sim(friction, joint_ids=joint_ids, env_ids=torch.tensor([0], device=env.unwrapped.device))
-    articulation.write_joint_dynamic_friction_coefficient_to_sim(friction, joint_ids=joint_ids, env_ids=torch.tensor([0], device=env.unwrapped.device))
+    write_joint_properties_to_sim(
+        articulation,
+        armature=armature,
+        viscous_friction=damping,
+        coulomb_friction=friction,
+        joint_ids=joint_ids,
+        env_ids=torch.arange(len(armature), device=env.unwrapped.device),
+    )
     drive_types = articulation.actuators.keys()
     for drive_type in drive_types:
         drive_indices = articulation.actuators[drive_type].joint_indices
@@ -112,8 +116,7 @@ def main():
     )
     trajectory[:, joint_ids] = (trajectory[:, joint_ids] + trajectory_bias.unsqueeze(0)) * trajectory_directions.unsqueeze(0) * trajectory_scale.unsqueeze(0)
 
-    articulation.write_joint_position_to_sim(trajectory[0, :].unsqueeze(0) + bias[0, joint_ids])
-    articulation.write_joint_velocity_to_sim(torch.zeros((1, len(joint_ids)), device=env.unwrapped.device))
+    write_joint_state_to_sim(articulation, trajectory[0, :].unsqueeze(0) + bias[0, joint_ids], joint_ids=None)
 
     counter = 0
     # simulate environment

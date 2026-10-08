@@ -10,6 +10,8 @@ from torch.utils.tensorboard import SummaryWriter as TensorboardSummaryWriter
 from datetime import datetime
 import os
 
+from pace_sim2real.utils.joint_properties import write_joint_properties_to_sim, write_joint_state_to_sim
+
 
 class CMAESOptimizer:
     def __init__(self, bounds, population_size, log_dir, joint_order, max_iteration, data, device, epsilon=None, sigma=0.5, save_interval=10, save_optimization_process=False):
@@ -110,14 +112,15 @@ class CMAESOptimizer:
 
     def update_simulator(self, articulation, joint_ids, initial_position):
         env_ids = torch.arange(len(self.sim_params[:, self.armature_idx]), device=self.device)
-        articulation.write_joint_armature_to_sim(self.sim_params[:, self.armature_idx], joint_ids=joint_ids, env_ids=env_ids)
-        articulation.write_joint_viscous_friction_coefficient_to_sim(self.sim_params[:, self.damping_idx], joint_ids=joint_ids, env_ids=env_ids)
-        # If we set static friction lower than dynamic friction, the sim complains. So we need to do this weird order.
-        articulation.write_joint_dynamic_friction_coefficient_to_sim(torch.zeros_like(self.sim_params[:, self.friction_idx]), joint_ids=joint_ids, env_ids=env_ids)
-        articulation.write_joint_friction_coefficient_to_sim(self.sim_params[:, self.friction_idx], joint_ids=joint_ids, env_ids=env_ids)
-        articulation.write_joint_dynamic_friction_coefficient_to_sim(self.sim_params[:, self.friction_idx], joint_ids=joint_ids, env_ids=env_ids)
-        articulation.write_joint_position_to_sim(initial_position + self.sim_params[:, self.bias_idx], joint_ids=joint_ids)
-        articulation.write_joint_velocity_to_sim(torch.zeros_like(initial_position), joint_ids=joint_ids)
+        write_joint_properties_to_sim(
+            articulation,
+            armature=self.sim_params[:, self.armature_idx],
+            viscous_friction=self.sim_params[:, self.damping_idx],
+            coulomb_friction=self.sim_params[:, self.friction_idx],
+            joint_ids=joint_ids,
+            env_ids=env_ids,
+        )
+        write_joint_state_to_sim(articulation, initial_position + self.sim_params[:, self.bias_idx], joint_ids)
         for drive_type in articulation.actuators.keys():
             drive_indices = articulation.actuators[drive_type].joint_indices
             if isinstance(drive_indices, slice):
