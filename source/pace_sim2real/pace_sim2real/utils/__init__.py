@@ -6,11 +6,13 @@
 Utility functions and actuator models for PACE.
 """
 
-from .pace_actuator_cfg import PaceDCMotorCfg  # adjust to real class names
-from .pace_actuator import PaceDCMotor
+from .pace_actuator_cfg import PaceDCMotorCfg, PaceIdealPDActuatorCfg  # adjust to real class names
+from .pace_actuator import PaceDCMotor, PaceIdealPDActuator
 from .paths import project_root  # example if you have such a function
 
 __all__ = [
     "PaceDCMotorCfg",
     "PaceDCMotor",
+    "PaceIdealPDActuatorCfg",
+    "PaceIdealPDActuator",
 ]

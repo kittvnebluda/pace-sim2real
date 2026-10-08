@@ -8,20 +8,20 @@ import torch
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from isaaclab.actuators import DCMotor, resolve_joint_parameter
+from isaaclab.actuators import DCMotor, IdealPDActuator, resolve_joint_parameter
 from isaaclab.utils.types import ArticulationActions
 from isaaclab.utils import DelayBuffer
+
 if TYPE_CHECKING:
-    # only for type checking
-    from .pace_actuator_cfg import PaceDCMotorCfg
+    from .pace_actuator_cfg import PaceDCMotorCfg, PaceIdealPDActuatorCfg
 
 
-class PaceDCMotor(DCMotor):
-    """Pace DC Motor actuator model with encoder bias and action delay.
+class _PaceActuatorMixin:
+    """Encoder bias and action delay on top of an Isaac Lab PD actuator.
 
-    The actuator models a DC motor whose controller receives joint positions in the encoder
-    frame by adding a per-joint encoder bias to the true joint positions. In other words,
-    the controller operates on biased (encoder) positions rather than the true joint positions.
+    The controller receives joint positions in the encoder frame by adding a per-joint encoder
+    bias to the true joint positions. In other words, the controller operates on biased (encoder)
+    positions rather than the true joint positions.
 
     The torque command computed by the PD controller is applied after a configurable delay
     (in simulation steps) to represent latency between command calculation and actuation.
@@ -29,9 +29,7 @@ class PaceDCMotor(DCMotor):
     The software implementation is inspired by DelayedPDActuator.
     """
 
-    cfg: PaceDCMotorCfg
-
-    def __init__(self, cfg: PaceDCMotorCfg, *args, **kwargs):
+    def __init__(self, cfg: PaceDCMotorCfg | PaceIdealPDActuatorCfg, *args, **kwargs):
         super().__init__(cfg, *args, **kwargs)
         if isinstance(cfg.encoder_bias, (list, tuple)):
             if len(cfg.encoder_bias) != self.num_joints:
@@ -64,3 +62,15 @@ class PaceDCMotor(DCMotor):
         control_action_sim = super().compute(control_action, joint_pos - self.encoder_bias, joint_vel)
         control_action_sim.joint_efforts = self.torques_delay_buffer.compute(control_action_sim.joint_efforts)
         return control_action_sim
+
+
+class PaceDCMotor(_PaceActuatorMixin, DCMotor):
+    """Pace DC Motor actuator model with encoder bias and action delay."""
+
+    cfg: PaceDCMotorCfg
+
+
+class PaceIdealPDActuator(_PaceActuatorMixin, IdealPDActuator):
+    """Pace ideal PD actuator (flat effort limit) with encoder bias and action delay."""
+
+    cfg: PaceIdealPDActuatorCfg

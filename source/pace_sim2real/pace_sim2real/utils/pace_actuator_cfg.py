@@ -7,7 +7,7 @@ import torch
 
 from isaaclab.utils import configclass
 
-from isaaclab.actuators import DCMotorCfg
+from isaaclab.actuators import DCMotorCfg, IdealPDActuatorCfg
 from pace_sim2real.utils import pace_actuator
 
 
@@ -18,5 +18,16 @@ class PaceDCMotorCfg(DCMotorCfg):
     This class extends the base DCMotorCfg with Pace-specific parameters.
     """
     class_type: type = pace_actuator.PaceDCMotor
+    encoder_bias: dict[str, float] | float | None = 0.0
+    max_delay: torch.int | None = 0
+
+
+@configclass
+class PaceIdealPDActuatorCfg(IdealPDActuatorCfg):
+    """Configuration for Pace ideal PD actuator model.
+
+    This class extends the base IdealPDActuatorCfg with Pace-specific parameters.
+    """
+    class_type: type = pace_actuator.PaceIdealPDActuator
     encoder_bias: dict[str, float] | float | None = 0.0
     max_delay: torch.int | None = 0
