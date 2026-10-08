@@ -113,7 +113,7 @@ class CMAESOptimizer:
         articulation.write_joint_armature_to_sim(self.sim_params[:, self.armature_idx], joint_ids=joint_ids, env_ids=env_ids)
         articulation.write_joint_viscous_friction_coefficient_to_sim(self.sim_params[:, self.damping_idx], joint_ids=joint_ids, env_ids=env_ids)
         # If we set static friction lower than dynamic friction, the sim complains. So we need to do this weird order.
-        articulation.write_joint_dynamic_friction_coefficient_to_sim(0.0, joint_ids=joint_ids, env_ids=env_ids)
+        articulation.write_joint_dynamic_friction_coefficient_to_sim(torch.zeros_like(self.sim_params[:, self.friction_idx]), joint_ids=joint_ids, env_ids=env_ids)
         articulation.write_joint_friction_coefficient_to_sim(self.sim_params[:, self.friction_idx], joint_ids=joint_ids, env_ids=env_ids)
         articulation.write_joint_dynamic_friction_coefficient_to_sim(self.sim_params[:, self.friction_idx], joint_ids=joint_ids, env_ids=env_ids)
         articulation.write_joint_position_to_sim(initial_position + self.sim_params[:, self.bias_idx], joint_ids=joint_ids)
