@@ -9,7 +9,8 @@ from isaaclab.assets import ArticulationCfg
 from isaaclab.utils import configclass
 
 from pace_sim2real import PaceCfg, PaceSim2realEnvCfg, PaceSim2realSceneCfg
-from pace_sim2real.utils import PaceIdealPDActuatorCfg
+from pace_sim2real.tasks.manager_based.pace.pace_sim2real_env_cfg import EnvelopeCfg, StepCfg
+from pace_sim2real.utils import PaceDCMotorEnvelopeCfg
 from pace_sim2real.utils.paths import ASSETS_DIR
 
 # The same MJCF that will be used in mjlab training,
@@ -19,9 +20,14 @@ ALIENGO_MJCF = os.environ.get(
     str(ASSETS_DIR / "unitree_aliengo" / "aliengo.xml"),
 )
 
-ALIENGO_PACE_ACTUATOR_CFG = PaceIdealPDActuatorCfg(
+ALIENGO_PACE_ACTUATOR_CFG = PaceDCMotorEnvelopeCfg(
     joint_names_expr=[".*_hip_joint", ".*_thigh_joint", ".*_calf_joint"],
-    effort_limit=44.4,
+    # peak torque per group, from the URDF
+    actuator_effort_limit={".*_hip_joint": 35.278, ".*_thigh_joint": 35.278, ".*_calf_joint": 44.4},
+    # motor constants at 27 V: the synthetic ground truth, fixed in stage 1 and fitted in stage 2
+    v_bus=27.0,
+    c_omega={".*_hip_joint": 1.15, ".*_thigh_joint": 0.80, ".*_calf_joint": 1.45},  # [V s/rad]
+    c_tau={".*_hip_joint": 0.60, ".*_thigh_joint": 0.55, ".*_calf_joint": 0.25},  # [V/(N m)]
     stiffness={".*": 40.0},  # P gain in Nm/rad
     damping={".*": 2.0},  # D gain in Nm s/rad
     encoder_bias={".*": 0.0},  # encoder bias in radians
@@ -52,9 +58,10 @@ class AliengoPaceCfg(PaceCfg):
     ]
 
     def __post_init__(self):
-        # hip +-0.3, thigh 0.3..1.3, calf -2.1..-0.9 rad: inside the MJCF limits (hip +-1.22, calf -2.78..-0.65)
+        # hip +-0.3, thigh 0.5..1.1, calf -2.1..-0.9 rad: inside the MJCF limits (hip +-1.22, calf -2.78..-0.65);
+        # thigh amplitude 0.3, not 0.5: at 0.5 the 10 Hz end clipped ~10% of thigh samples on the envelope
         self.chirp.center = [0.0, 0.8, -1.5] * 4
-        self.chirp.amplitude = [0.3, 0.5, 0.6] * 4
+        self.chirp.amplitude = [0.3, 0.3, 0.6] * 4
         # ground truth for synthetic data, different from the MJCF defaults (armature 0.01, frictionloss 0.1)
         self.synthetic.armature = 0.02
         self.synthetic.viscous_friction = 0.5
@@ -69,6 +76,23 @@ class AliengoPaceCfg(PaceCfg):
         self.bounds_params[36:48, 0] = -0.1
         self.bounds_params[36:48, 1] = 0.1  # bias between -0.1 - 0.1 [rad]
         self.bounds_params[48, 1] = 10.0  # delay between 0.0 - 10.0 [sim steps]
+
+        # steps for stage 2, inside the MJCF limits; with Kp 60 the PD torque reaches the peak
+        # torque for errors above 0.59 rad (hip, thigh) and 0.74 rad (calf)
+        self.step = StepCfg(center=[0.0, 0.8, -1.5] * 4, amplitude=[0.5, 0.6, 0.6] * 4)
+        # stage 2: hip, thigh and knee constants, each shared by the 4 legs; CMA-ES starts at the bounds midpoints
+        self.envelope = EnvelopeCfg(
+            data_dir="aliengo_sim/step_data.pt",
+            groups={"hip": ".*_hip_joint", "thigh": ".*_thigh_joint", "knee": ".*_calf_joint"},
+            bounds_params=torch.tensor([
+                [0.60, 1.35],  # c_omega hip [V s/rad]
+                [0.60, 1.35],  # c_omega thigh
+                [0.75, 1.70],  # c_omega knee
+                [0.09, 0.77],  # c_tau hip [V/(N m)]
+                [0.09, 0.77],  # c_tau thigh
+                [0.07, 0.61],  # c_tau knee
+            ]),
+        )
 
 
 @configclass
