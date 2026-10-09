@@ -166,6 +166,7 @@ class PaceCfg:
     synthetic: SyntheticParamsCfg = SyntheticParamsCfg()
     step: StepCfg | None = None  # step excitation, for robots with an envelope stage
     envelope: EnvelopeCfg | None = None  # stage 2, for robots with a PaceDCMotorEnvelope actuator
+    joint_limits: dict[str, tuple[float, float]] | None = None  # hardware position limits per joint regex [rad]
 
     robot_name: str = MISSING
     data_dir: str = MISSING

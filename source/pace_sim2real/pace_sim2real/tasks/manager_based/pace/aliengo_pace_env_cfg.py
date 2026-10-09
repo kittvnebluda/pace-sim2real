@@ -1,6 +1,7 @@
 # Author: Grigorii Sizikov
 # Licensed under the Apache License 2.0
 
+import math
 import os
 
 import isaaclab.sim as sim_utils
@@ -42,6 +43,12 @@ class AliengoPaceCfg(PaceCfg):
     robot_name: str = "aliengo_sim"
     data_dir: str = "aliengo_sim/chirp_data.pt"  # located in pace_sim2real/data/aliengo_sim/chirp_data.pt
     bounds_params: torch.Tensor = torch.zeros((49, 2))  # 12 + 12 + 12 + 12 + 1 = 49 parameters to optimize
+    # position limits from the URDF (Unitree aliengo const.xacro), the same values as the bundled MJCF
+    joint_limits: dict[str, tuple[float, float]] = {
+        ".*_hip_joint": (math.radians(-70.0), math.radians(70.0)),
+        ".*_thigh_joint": (math.radians(-120.0), math.radians(240.0)),
+        ".*_calf_joint": (math.radians(-159.0), math.radians(-37.0)),
+    }
     joint_order: list[str] = [
         "FR_hip_joint",
         "FR_thigh_joint",
