@@ -37,6 +37,7 @@ from isaaclab_tasks.utils import parse_env_cfg
 import pace_sim2real.tasks  # noqa: F401
 from pace_sim2real.utils import project_root
 from pace_sim2real import CMAESOptimizer
+from pace_sim2real.optim.parameterization import PaceJointParams
 
 
 def main():
@@ -53,10 +54,10 @@ def main():
     print(f"[INFO]: Gym action space: {env.action_space}")
 
     # Create optimization
-    bounds_params = env_cfg.sim2real.bounds_params.to(env.unwrapped.device)
     articulation = env.unwrapped.scene["robot"]
     joint_order = env_cfg.sim2real.joint_order
     sim_joint_ids = torch.tensor([articulation.joint_names.index(name) for name in joint_order], device=env.unwrapped.device)
+    params = PaceJointParams(env_cfg.sim2real.bounds_params.to(env.unwrapped.device), joint_order)
 
     data_file = project_root() / "data" / env_cfg.sim2real.data_dir
     log_dir = project_root() / "logs" / "pace" / env_cfg.sim2real.robot_name
@@ -72,7 +73,7 @@ def main():
     sim_dt = env.unwrapped.sim.cfg.dt
 
     opt = CMAESOptimizer(
-        bounds=bounds_params,
+        params=params,
         population_size=env.unwrapped.num_envs,
         log_dir=log_dir,
         joint_order=joint_order,
