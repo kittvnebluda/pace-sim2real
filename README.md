@@ -1,6 +1,6 @@
 # ⚙️ PACE — Sim-to-Real Transfer for Legged Robots
 ![License](https://img.shields.io/badge/license-Apache%202.0-blue)
-![Python](https://img.shields.io/badge/python-3.10+-green)
+![Python](https://img.shields.io/badge/python-3.12-green)
 ![Status](https://img.shields.io/badge/status-active_development-orange)
 
 PACE is a framework for **sim-to-real transfer of diverse robotic systems**, combining data-driven system identification with evolutionary optimization.
@@ -23,12 +23,12 @@ It is designed to integrate seamlessly with **NVIDIA Isaac Lab** and follows its
 
 ## 📦 Installation
 
-### 1. Install Isaac Lab
+### 1. Install Isaac Lab 3.0
 
 Follow the official Isaac Lab installation guide:
 [https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html)
 
-We recommend using the **conda** or **uv** installation method, as this simplifies running Python scripts from the terminal and managing dependencies.
+We recommend the **uv** installation method, which creates a Python venv inside the Isaac Lab checkout (e.g. `IsaacLab/.venv`).
 
 ### 2. Clone this repository
 
@@ -41,27 +41,24 @@ cd pace-sim2real
 
 ### 3. Install PACE in editable mode
 
-Using a Python interpreter that has Isaac Lab installed:
+Point `PY` at the Python interpreter of the Isaac Lab venv and install PACE into it once:
 
 ```bash
-# Use 'PATH_TO_isaaclab.sh|bat -p' instead of 'python'
-# if Isaac Lab is not installed in a Python venv or conda environment
-python -m pip install -e source/pace_sim2real
-```
-### ⚠️ Isaac Sim version compatibility
-
-PACE is developed and tested against **Isaac Sim 5.0 / Isaac Lab (latest)**.
-
-If you run the examples on older versions (e.g. Isaac Sim 4.5), you may encounter warnings such as:
-
-```bash
-Setting joint viscous friction coefficients are not supported in Isaac Sim < 5.0
+export PY=../IsaacLab/.venv/bin/python
+uv pip install --python $PY -e source/pace_sim2real
 ```
 
-These warnings are expected and indicate that certain physics properties (e.g. joint viscous friction) are not supported by the older simulator version. While the examples may still run, the physical fidelity and sim-to-real accuracy will be reduced.
+⚠️ Call `$PY` directly afterwards instead of `uv run`: `uv run` re-syncs the venv and drops PACE.
 
-✅ Recommended: Isaac Sim 5.0 or newer  
-⚠️ Legacy support: May run with limitations on < 5.0
+### ⚠️ Isaac Lab version compatibility
+
+PACE is developed and tested against **Isaac Lab 3.0 / Isaac Sim 6.1 (Python 3.12)**.
+Isaac Lab 2.x (Isaac Sim 4.5 / 5.0) is no longer supported on this branch.
+
+Notable changes in Isaac Lab 3.0:
+
+* Headless is the default; `--headless` no longer exists. Add `--viz` to open a viewer.
+* Physics backends are selected with Hydra presets (see [Physics backend](#-physics-backend)).
 
 ---
 
@@ -77,19 +74,16 @@ This documentation site is built using **MkDocs** with the **Material for MkDocs
 
 ## 🐾 Running an Example: ANYmal D
 
-### 1. Activate the Isaac Lab environment
+Run all commands from the repository root with `PY` set as in the installation step.
 
-```bash
-conda activate <isaaclab_env>
-cd path/to/pace-sim2real
-```
-
-### 2. Collect excitation data
+### 1. Collect excitation data
 
 (Alternatively, place your own real-world data in `data/`)
 
 ```bash
-python scripts/pace/data_collection.py
+$PY scripts/pace/data_collection.py
+# set MPLBACKEND=Agg to skip the blocking plot windows at the end
+MPLBACKEND=Agg $PY scripts/pace/data_collection.py
 ```
 
 This will collect simulation data and store results in:
@@ -98,17 +92,55 @@ This will collect simulation data and store results in:
 data/anymal_d_sim/chirp_data.pt
 ```
 
-### 3. Run PACE parameter fitting
+### 2. Run PACE parameter fitting
 
 ```bash
-python scripts/pace/fit.py
+# default is 4096 envs; lower --num_envs if the GPU runs out of memory or overheats
+$PY scripts/pace/fit.py --num_envs 1024
 ```
 
 This will estimate the actuator and joint parameters using CMA-ES and store results in:
 
 ```
-logs/pace/anymal_d_sim/
+logs/pace/anymal_d_sim/<timestamp>/
 ```
+
+Monitor progress with `tensorboard --logdir logs/pace`.
+
+### 3. Inspect the result
+
+No simulator is needed for plotting:
+
+```bash
+$PY scripts/pace/plot_trajectory.py --plot_trajectory
+```
+
+`--plot_score` additionally requires `save_optimization_process = True` in `CMAESOptimizerCfg`.
+
+### Tip: hybrid GPU laptops
+
+To keep Isaac Sim off an integrated Intel GPU, pin it to the NVIDIA GPU:
+
+```bash
+export CUDA_VISIBLE_DEVICES=0 VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json
+```
+
+---
+
+## 🔀 Physics backend
+
+PhysX is the default. Append `physics=newton_mjwarp` to run on Newton with the MuJoCo Warp solver (`implicitfast`, as in mjlab):
+
+```bash
+$PY scripts/pace/data_collection.py physics=newton_mjwarp
+$PY scripts/pace/fit.py --num_envs 1024 physics=newton_mjwarp
+```
+
+* Fitted parameters are engine-specific: collect, fit and deploy on the same backend. With identical parameters, PhysX and Newton joint trajectories differ by up to ~7 mrad RMS.
+* Newton fits values in MuJoCo terms (`armature`, `damping`, `frictionloss`), so they are a starting point for mjlab, not an exact match (the model comes from USD, not your MJCF).
+* Newton has no dynamic friction; Coulomb friction is a single `frictionloss`.
+* Newton was ~10x faster per CMA-ES iteration in a 64-env test (1.3 s vs 14 s).
+* The preset is resolved by `parse_env_cfg`; building the env cfg directly and passing it to `gym.make` fails.
 
 ---
 
