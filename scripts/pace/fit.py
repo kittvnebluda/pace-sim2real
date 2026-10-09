@@ -38,6 +38,7 @@ import pace_sim2real.tasks  # noqa: F401
 from pace_sim2real.utils import project_root
 from pace_sim2real import CMAESOptimizer
 from pace_sim2real.optim.parameterization import PaceJointParams
+from pace_sim2real.utils.actuators import write_pd_gains
 
 
 def main():
@@ -66,6 +67,9 @@ def main():
     time_data = data["time"].to(env.unwrapped.device)
     target_dof_pos = data["des_dof_pos"].to(env.unwrapped.device)
     measured_dof_pos = data["dof_pos"].to(env.unwrapped.device)
+    # PD gains used during the recording, if stored (older chirp files keep the actuator config gains)
+    if "kp" in data:
+        write_pd_gains(articulation, data["kp"].to(env.unwrapped.device), data["kd"].to(env.unwrapped.device), sim_joint_ids)
 
     initial_dof_pos = measured_dof_pos[0, :].unsqueeze(0).repeat(env.unwrapped.num_envs, 1)
 

@@ -17,7 +17,8 @@ parser.add_argument("--num_envs", type=int, default=1, help="Number of environme
 parser.add_argument("--task", type=str, default="Isaac-Pace-Anymal-D-v0", help="Name of the task.")
 parser.add_argument("--min_frequency", type=float, default=0.1, help="Minimum frequency for the chirp signal in Hz.")
 parser.add_argument("--max_frequency", type=float, default=10.0, help="Maximum frequency for the chirp signal in Hz.")
-parser.add_argument("--duration", type=float, default=20.0, help="Duration of the chirp signal in seconds.")
+parser.add_argument("--duration", type=float, default=20.0, help="Duration of the excitation signal in seconds.")
+parser.add_argument("--excitation", type=str, default="chirp", choices=("chirp", "step"), help="Chirp (stage 1) or steps (stage 2).")
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments; the rest are Hydra overrides, e.g. physics=newton_mjwarp
@@ -36,10 +37,11 @@ import torch
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import parse_env_cfg
-from torch import pi
 
 import pace_sim2real.tasks  # noqa: F401
 from pace_sim2real.utils import project_root
+from pace_sim2real.utils.actuators import actuator_groups, read_clip_active, read_delayed_effort, write_pd_gains
+from pace_sim2real.utils.excitation import chirp, steps
 from pace_sim2real.utils.joint_properties import write_joint_properties_to_sim, write_joint_state_to_sim
 
 
@@ -77,37 +79,41 @@ def main():
         joint_ids=joint_ids,
         env_ids=torch.arange(len(armature), device=env.unwrapped.device),
     )
-    drive_types = articulation.actuators.keys()
-    for drive_type in drive_types:
-        drive_indices = articulation.actuators[drive_type].joint_indices
-        if isinstance(drive_indices, slice):
-            all_idx = torch.arange(joint_ids.shape[0], device=joint_ids.device)
-            drive_indices = all_idx[drive_indices]
-        comparison_matrix = (joint_ids.unsqueeze(1) == drive_indices.unsqueeze(0))
-        drive_joint_idx = torch.argmax(comparison_matrix.int(), dim=0)
-        articulation.actuators[drive_type].update_time_lags(time_lag)
-        articulation.actuators[drive_type].update_encoder_bias(bias[:, drive_joint_idx])
-        articulation.actuators[drive_type].reset(torch.arange(env.unwrapped.num_envs, device=env.unwrapped.device))
+    for actuator, drive_joint_idx in actuator_groups(articulation, joint_ids):
+        actuator.update_time_lags(time_lag)
+        actuator.update_encoder_bias(bias[:, drive_joint_idx])
+        actuator.reset(torch.arange(env.unwrapped.num_envs, device=env.unwrapped.device))
+
+    # PD gains of the recording, in joint_order; the steps use their own gains
+    if args_cli.excitation == "step":
+        kp = torch.full((len(joint_ids),), env_cfg.sim2real.step.kp, device=env.unwrapped.device)
+        kd = torch.full((len(joint_ids),), env_cfg.sim2real.step.kd, device=env.unwrapped.device)
+        write_pd_gains(articulation, kp, kd, joint_ids)
+    kp = torch.zeros(len(joint_ids), device=env.unwrapped.device)
+    kd = torch.zeros(len(joint_ids), device=env.unwrapped.device)
+    for actuator, columns in actuator_groups(articulation, joint_ids):
+        kp[columns] = actuator.stiffness[0]
+        kd[columns] = actuator.damping[0]
 
     data_dir = project_root() / "data" / env_cfg.sim2real.robot_name
 
-    # Create a chirp signal for each action dimension
+    # Create the excitation signal for each action dimension
 
     duration = args_cli.duration  # seconds
     sample_rate = 1 / env.unwrapped.sim.get_physics_dt()  # Hz
     num_steps = int(duration * sample_rate)
     t = torch.linspace(0, duration, steps=num_steps, device=env.unwrapped.device)
-    f0 = args_cli.min_frequency  # Hz
-    f1 = args_cli.max_frequency  # Hz
-
-    # Linear chirp: phase = 2*pi*(f0*t + (f1-f0)/(2*duration)*t^2)
-    phase = 2 * pi * (f0 * t + ((f1 - f0) / (2 * duration)) * t ** 2)
-    chirp_signal = torch.sin(phase)
+    if args_cli.excitation == "chirp":
+        signal = chirp(t, args_cli.min_frequency, args_cli.max_frequency, duration)
+        shape = env_cfg.sim2real.chirp
+    else:
+        signal = steps(t, env_cfg.sim2real.step.hold, env_cfg.sim2real.step.scales)
+        shape = env_cfg.sim2real.step
 
     trajectory = torch.zeros((num_steps, articulation.num_joints), device=env.unwrapped.device)
-    center = torch.tensor(env_cfg.sim2real.chirp.center, device=env.unwrapped.device)
-    amplitude = torch.tensor(env_cfg.sim2real.chirp.amplitude, device=env.unwrapped.device)
-    trajectory[:, joint_ids] = center.unsqueeze(0) + amplitude.unsqueeze(0) * chirp_signal.unsqueeze(-1)
+    center = torch.tensor(shape.center, device=env.unwrapped.device)
+    amplitude = torch.tensor(shape.amplitude, device=env.unwrapped.device)
+    trajectory[:, joint_ids] = center.unsqueeze(0) + amplitude.unsqueeze(0) * signal.unsqueeze(-1)
 
     write_joint_state_to_sim(articulation, trajectory[0, :].unsqueeze(0) + bias[0, joint_ids], joint_ids=None)
 
@@ -115,17 +121,24 @@ def main():
     # simulate environment
     dof_pos_buffer = torch.zeros(num_steps, len(joint_ids), device=env.unwrapped.device)
     dof_target_pos_buffer = torch.zeros(num_steps, len(joint_ids), device=env.unwrapped.device)
+    dof_vel_buffer = torch.zeros(num_steps, len(joint_ids), device=env.unwrapped.device)
+    tau_buffer = torch.zeros(num_steps, len(joint_ids), device=env.unwrapped.device)
+    clip_active_buffer = torch.zeros(num_steps, len(joint_ids), dtype=torch.bool, device=env.unwrapped.device)
     time_data = t
     while simulation_app.is_running():
         # run everything in inference mode
         with torch.inference_mode():
             # compute actions
             dof_pos_buffer[counter, :] = env.unwrapped.scene.articulations["robot"].data.joint_pos[0, joint_ids] - bias[0]
+            dof_vel_buffer[counter, :] = articulation.data.joint_vel.torch[0, joint_ids]
             actions = torch.zeros(env.action_space.shape, device=env.unwrapped.device)
             actions = trajectory[counter % num_steps, :].unsqueeze(0).repeat(env.unwrapped.num_envs, 1)
             # apply actions
             obs, _, _, _, _ = env.step(actions)
             dof_target_pos_buffer[counter, :] = env.unwrapped.scene.articulations["robot"]._data.joint_pos_target[0, joint_ids]
+            # torque applied during this step (synthetic tau_est), and whether the envelope clipped the PD torque
+            tau_buffer[counter, :] = read_delayed_effort(articulation, joint_ids)[0]
+            clip_active_buffer[counter, :] = read_clip_active(articulation, joint_ids)[0]
             counter += 1
             if counter % 400 == 0:
                 print(f"[INFO]: Step {counter/sample_rate} seconds")
@@ -138,12 +151,29 @@ def main():
     from time import sleep
     sleep(1)  # wait a bit for everything to settle
 
+    # envelope coverage per joint: the clip must stay inactive on chirps and be active on steps
+    print(f"[INFO]: {args_cli.excitation}: joint, peak |qd| [rad/s], corner speed [rad/s], clip-active samples")
+    for actuator, columns in actuator_groups(articulation, joint_ids):
+        if not hasattr(actuator, "_saturation_effort"):
+            continue
+        corner = actuator.actuator_velocity_limit[0] * (1 - actuator.actuator_effort_limit[0] / actuator._saturation_effort[0])
+        for j, col in enumerate(columns.tolist()):
+            print(f"  {joint_order[col]:<16} {dof_vel_buffer[:, col].abs().max().item():7.2f} {corner[j].item():7.2f}"
+                  f" {clip_active_buffer[:, col].float().mean().item():8.2%}")
+
     (data_dir).mkdir(parents=True, exist_ok=True)
     torch.save({
         "time": time_data.cpu(),
         "dof_pos": dof_pos_buffer.cpu(),
         "des_dof_pos": dof_target_pos_buffer.cpu(),
-    }, data_dir / "chirp_data.pt")
+        "dof_vel": dof_vel_buffer.cpu(),
+        "tau_est": tau_buffer.cpu(),
+        "clip_active": clip_active_buffer.cpu(),
+        "kp": kp.cpu(),
+        "kd": kd.cpu(),
+        "excitation": args_cli.excitation,
+        "joint_order": joint_order,
+    }, data_dir / f"{args_cli.excitation}_data.pt")
 
     import matplotlib.pyplot as plt
 

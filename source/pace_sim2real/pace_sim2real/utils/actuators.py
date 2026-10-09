@@ -40,3 +40,28 @@ def actuator_groups(
             drive_indices = all_idx[drive_indices]
         comparison_matrix = joint_ids.unsqueeze(1) == drive_indices.unsqueeze(0)
         yield actuator, torch.argmax(comparison_matrix.int(), dim=0)
+
+
+def write_pd_gains(
+    articulation: PhysxArticulation | NewtonArticulation, kp: torch.Tensor, kd: torch.Tensor, joint_ids: torch.Tensor
+) -> None:
+    """Set the actuator-model PD gains, one value per joint in ``joint_order``, for all environments."""
+    for actuator, columns in actuator_groups(articulation, joint_ids):
+        actuator.stiffness[:] = kp[columns]
+        actuator.damping[:] = kd[columns]
+
+
+def read_delayed_effort(articulation: PhysxArticulation | NewtonArticulation, joint_ids: torch.Tensor) -> torch.Tensor:
+    """Torque applied to the joints in the last step (after clip and delay), shape (num_envs, len(joint_order))."""
+    effort = torch.zeros((articulation.num_instances, joint_ids.shape[0]), device=joint_ids.device)
+    for actuator, columns in actuator_groups(articulation, joint_ids):
+        effort[:, columns] = actuator.delayed_effort
+    return effort
+
+
+def read_clip_active(articulation: PhysxArticulation | NewtonArticulation, joint_ids: torch.Tensor) -> torch.Tensor:
+    """Whether the actuator clip changed the PD torque in the last step, shape (num_envs, len(joint_order))."""
+    active = torch.zeros((articulation.num_instances, joint_ids.shape[0]), dtype=torch.bool, device=joint_ids.device)
+    for actuator, columns in actuator_groups(articulation, joint_ids):
+        active[:, columns] = actuator.computed_effort != actuator.applied_effort
+    return active

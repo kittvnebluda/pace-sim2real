@@ -122,6 +122,21 @@ class ChirpCfg:
 
 
 @configclass
+class StepCfg:
+    """Step excitation per joint (in ``joint_order``), for identifying the torque-speed envelope.
+
+    Every ``hold`` seconds the target jumps to center + sign * scale * amplitude; the sign alternates
+    and the scale cycles through ``scales``, so the steps have several sizes and reach several speeds.
+    """
+    center: list[float] = MISSING  # [rad]
+    amplitude: list[float] = MISSING  # [rad]
+    scales: list[float] = [1.0, 0.4, 0.8, 0.6]
+    hold: float = 0.5  # [s]
+    kp: float = 60.0  # P gain during the steps [Nm/rad]
+    kd: float = 2.0  # D gain during the steps [Nm s/rad]
+
+
+@configclass
 class SyntheticParamsCfg:
     """Ground-truth parameters for synthetic data collection, applied to every joint."""
     armature: float = 0.1  # [kg m^2]
@@ -137,6 +152,7 @@ class PaceCfg:
     cmaes: CMAESOptimizerCfg = CMAESOptimizerCfg()
     chirp: ChirpCfg = ChirpCfg()
     synthetic: SyntheticParamsCfg = SyntheticParamsCfg()
+    step: StepCfg | None = None  # step excitation, for identifying the torque-speed envelope
 
     robot_name: str = MISSING
     data_dir: str = MISSING
