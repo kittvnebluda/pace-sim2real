@@ -78,8 +78,9 @@ class AliengoPaceCfg(PaceCfg):
         self.bounds_params[48, 1] = 10.0  # delay between 0.0 - 10.0 [sim steps]
 
         # steps for stage 2, inside the MJCF limits; with Kp 60 the PD torque reaches the peak
-        # torque for errors above 0.59 rad (hip, thigh) and 0.74 rad (calf)
-        self.step = StepCfg(center=[0.0, 0.8, -1.5] * 4, amplitude=[0.5, 0.6, 0.6] * 4)
+        # torque for errors above 0.59 rad (hip, thigh) and 0.74 rad (calf). Kd 0.5, not 2: with Kd 2
+        # the D term (19-52 N m above the corner speed) kept the thigh PD torque off the torque-speed line
+        self.step = StepCfg(center=[0.0, 0.8, -1.5] * 4, amplitude=[0.5, 0.6, 0.6] * 4, kd=0.5)
         # stage 2: hip, thigh and knee constants, each shared by the 4 legs; CMA-ES starts at the bounds midpoints
         self.envelope = EnvelopeCfg(
             data_dir="aliengo_sim/step_data.pt",
