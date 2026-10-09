@@ -10,11 +10,11 @@ from torch.utils.tensorboard import SummaryWriter as TensorboardSummaryWriter
 from datetime import datetime
 import os
 
-from .parameterization import PaceJointParams
+from .parameterization import EnvelopeParams, PaceJointParams
 
 
 class CMAESOptimizer:
-    def __init__(self, params: PaceJointParams, population_size, log_dir, joint_order, max_iteration, data, device, epsilon=None, sigma=0.5, save_interval=10, save_optimization_process=False):
+    def __init__(self, params: PaceJointParams | EnvelopeParams, population_size, log_dir, joint_order, max_iteration, data, device, epsilon=None, sigma=0.5, save_interval=10, save_optimization_process=False, tau_weight=0.0):
 
         self.joint_order = joint_order
         self.max_iteration = max_iteration
@@ -23,6 +23,7 @@ class CMAESOptimizer:
         self.device = device
         self.save_optimization_process = save_optimization_process
         self.params_layout = params
+        self.tau_weight = tau_weight  # lambda of the torque term, 0 for PACE's position-only loss
         bounds = params.bounds
         self._timer_start = datetime.now()  # timer for logging purposes
 
@@ -70,6 +71,10 @@ class CMAESOptimizer:
         self.scores += torch.sum(torch.square(sim_dof_pos - real_dof_pos - self.params_layout.encoder_bias(self.sim_params)), dim=1)
         self.sim_dof_pos_buffer[:, self.scores_counter, :] = sim_dof_pos
         self.scores_counter += 1
+
+    def tell_torque(self, sim_tau, real_tau):
+        """Torque term of the loss, lambda * (tau_est - tau_sim)^2 per sample; call once per tell."""
+        self.scores += self.tau_weight * torch.sum(torch.square(real_tau - sim_tau), dim=1)
 
     def evolve(self):
         self.scores /= self.scores_counter

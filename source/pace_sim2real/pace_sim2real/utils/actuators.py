@@ -51,6 +51,18 @@ def write_pd_gains(
         actuator.damping[:] = kd[columns]
 
 
+def write_envelope(
+    articulation: PhysxArticulation | NewtonArticulation,
+    c_tau: torch.Tensor,
+    c_omega: torch.Tensor,
+    joint_ids: torch.Tensor,
+) -> None:
+    """Set the motor constants of every :class:`PaceDCMotorEnvelope`, shape (num_envs, len(joint_order))."""
+    for actuator, columns in actuator_groups(articulation, joint_ids):
+        if hasattr(actuator, "update_envelope"):
+            actuator.update_envelope(c_tau[:, columns], c_omega[:, columns])
+
+
 def read_delayed_effort(articulation: PhysxArticulation | NewtonArticulation, joint_ids: torch.Tensor) -> torch.Tensor:
     """Torque applied to the joints in the last step (after clip and delay), shape (num_envs, len(joint_order))."""
     effort = torch.zeros((articulation.num_instances, joint_ids.shape[0]), device=joint_ids.device)

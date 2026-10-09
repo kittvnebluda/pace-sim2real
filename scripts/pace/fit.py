@@ -15,6 +15,8 @@ from isaaclab.app import AppLauncher
 parser = argparse.ArgumentParser(description="Pace agent for Isaac Lab environments.")
 parser.add_argument("--num_envs", type=int, default=4096, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, default="Isaac-Pace-Anymal-D-v0", help="Name of the task.")
+parser.add_argument("--stage", type=int, default=1, choices=(1, 2), help="1: PACE parameters on chirp data, 2: motor constants on step data.")
+parser.add_argument("--stage1_run", type=str, default=None, help="Stage 2: stage-1 run directory whose latest mean_*.pt is frozen.")
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments; the rest are Hydra overrides, e.g. physics=newton_mjwarp
@@ -29,7 +31,9 @@ simulation_app = app_launcher.app
 """Rest everything follows."""
 
 import gymnasium as gym
+import re
 import torch
+from pathlib import Path
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import parse_env_cfg
@@ -37,8 +41,8 @@ from isaaclab_tasks.utils import parse_env_cfg
 import pace_sim2real.tasks  # noqa: F401
 from pace_sim2real.utils import project_root
 from pace_sim2real import CMAESOptimizer
-from pace_sim2real.optim.parameterization import PaceJointParams
-from pace_sim2real.utils.actuators import write_pd_gains
+from pace_sim2real.optim.parameterization import EnvelopeParams, PaceJointParams
+from pace_sim2real.utils.actuators import read_delayed_effort, write_pd_gains
 
 
 def main():
@@ -58,15 +62,34 @@ def main():
     articulation = env.unwrapped.scene["robot"]
     joint_order = env_cfg.sim2real.joint_order
     sim_joint_ids = torch.tensor([articulation.joint_names.index(name) for name in joint_order], device=env.unwrapped.device)
-    params = PaceJointParams(env_cfg.sim2real.bounds_params.to(env.unwrapped.device), joint_order)
 
-    data_file = project_root() / "data" / env_cfg.sim2real.data_dir
-    log_dir = project_root() / "logs" / "pace" / env_cfg.sim2real.robot_name
+    if args_cli.stage == 1:
+        params = PaceJointParams(env_cfg.sim2real.bounds_params.to(env.unwrapped.device), joint_order)
+        data_file = project_root() / "data" / env_cfg.sim2real.data_dir
+        log_dir = project_root() / "logs" / "pace" / env_cfg.sim2real.robot_name
+        tau_weight = 0.0
+    else:
+        envelope = env_cfg.sim2real.envelope
+        if envelope is None or args_cli.stage1_run is None:
+            raise ValueError("Stage 2 needs sim2real.envelope in the task config and --stage1_run.")
+        means = sorted(Path(args_cli.stage1_run).glob("mean_*.pt"), key=lambda p: int(re.findall(r"\d+", p.stem)[0]))
+        print(f"[INFO]: Stage 1 parameters frozen from {means[-1]}")
+        params = EnvelopeParams(
+            envelope.bounds_params.to(env.unwrapped.device),
+            envelope.groups,
+            joint_order,
+            torch.load(means[-1]).float(),
+        )
+        data_file = project_root() / "data" / envelope.data_dir
+        log_dir = project_root() / "logs" / "pace" / env_cfg.sim2real.robot_name / "stage2"
+        tau_weight = envelope.lam
 
     data = torch.load(data_file)
     time_data = data["time"].to(env.unwrapped.device)
     target_dof_pos = data["des_dof_pos"].to(env.unwrapped.device)
     measured_dof_pos = data["dof_pos"].to(env.unwrapped.device)
+    if tau_weight:
+        measured_tau = data["tau_est"].to(env.unwrapped.device)
     # PD gains used during the recording, if stored (older chirp files keep the actuator config gains)
     if "kp" in data:
         write_pd_gains(articulation, data["kp"].to(env.unwrapped.device), data["kd"].to(env.unwrapped.device), sim_joint_ids)
@@ -88,6 +111,7 @@ def main():
         sigma=env_cfg.sim2real.cmaes.sigma,
         save_interval=env_cfg.sim2real.cmaes.save_interval,
         save_optimization_process=env_cfg.sim2real.cmaes.save_optimization_process,
+        tau_weight=tau_weight,
     )
 
     env.reset()
@@ -104,6 +128,8 @@ def main():
             actions[:, sim_joint_ids] = target_dof_pos[counter, :].unsqueeze(0).repeat(env.unwrapped.num_envs, 1)
             # apply actions
             env.step(actions)
+            if tau_weight:
+                opt.tell_torque(read_delayed_effort(articulation, sim_joint_ids), measured_tau[counter, :].unsqueeze(0))
             counter += 1
             if counter % 400 == 0:
                 print(f"[INFO]: Step {counter * sim_dt:.1f} / {time_data[-1]:.1f} seconds ({counter / time_steps * 100:.1f} %)")

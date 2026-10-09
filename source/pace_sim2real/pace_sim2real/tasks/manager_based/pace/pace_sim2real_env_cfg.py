@@ -137,6 +137,18 @@ class StepCfg:
 
 
 @configclass
+class EnvelopeCfg:
+    """Stage 2: motor constants per joint group, fitted on step data with the PACE parameters frozen.
+
+    Loss: J2 = 1/N sum_t ||q_t - q_t^sim||^2 + lam/N sum_t ||tau_t^est - tau_t^sim||^2.
+    """
+    data_dir: str = MISSING  # step data, relative to pace_sim2real/data
+    groups: dict[str, str] = MISSING  # group name -> joint-name regex
+    bounds_params: torch.Tensor = MISSING  # (2 * groups, 2): c_omega per group [V s/rad], then c_tau per group [V/(N m)]
+    lam: float = 1.0  # weight of the torque term [rad^2/(N m)^2]
+
+
+@configclass
 class SyntheticParamsCfg:
     """Ground-truth parameters for synthetic data collection, applied to every joint."""
     armature: float = 0.1  # [kg m^2]
@@ -152,7 +164,8 @@ class PaceCfg:
     cmaes: CMAESOptimizerCfg = CMAESOptimizerCfg()
     chirp: ChirpCfg = ChirpCfg()
     synthetic: SyntheticParamsCfg = SyntheticParamsCfg()
-    step: StepCfg | None = None  # step excitation, for identifying the torque-speed envelope
+    step: StepCfg | None = None  # step excitation, for robots with an envelope stage
+    envelope: EnvelopeCfg | None = None  # stage 2, for robots with a PaceDCMotorEnvelope actuator
 
     robot_name: str = MISSING
     data_dir: str = MISSING
