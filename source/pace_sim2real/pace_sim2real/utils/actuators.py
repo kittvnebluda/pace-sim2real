@@ -77,3 +77,18 @@ def read_clip_active(articulation: PhysxArticulation | NewtonArticulation, joint
     for actuator, columns in actuator_groups(articulation, joint_ids):
         active[:, columns] = actuator.computed_effort != actuator.applied_effort
     return active
+
+
+def read_clip_at_effort_limit(
+    articulation: PhysxArticulation | NewtonArticulation, joint_ids: torch.Tensor
+) -> torch.Tensor:
+    """Whether the actuator clip held the torque at its effort limit in the last step.
+
+    With :func:`read_clip_active`, this splits the clipped samples into those at the flat effort limit and
+    those on a speed-dependent limit, such as a DC motor's torque-speed line. Shape (num_envs, len(joint_order)).
+    """
+    at_limit = torch.zeros((articulation.num_instances, joint_ids.shape[0]), dtype=torch.bool, device=joint_ids.device)
+    for actuator, columns in actuator_groups(articulation, joint_ids):
+        clipped = actuator.computed_effort != actuator.applied_effort
+        at_limit[:, columns] = clipped & (actuator.applied_effort.abs() == actuator.actuator_effort_limit)
+    return at_limit

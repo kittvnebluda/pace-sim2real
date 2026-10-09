@@ -40,7 +40,13 @@ from isaaclab_tasks.utils import parse_env_cfg
 
 import pace_sim2real.tasks  # noqa: F401
 from pace_sim2real.utils import project_root
-from pace_sim2real.utils.actuators import actuator_groups, read_clip_active, read_delayed_effort, write_pd_gains
+from pace_sim2real.utils.actuators import (
+    actuator_groups,
+    read_clip_active,
+    read_clip_at_effort_limit,
+    read_delayed_effort,
+    write_pd_gains,
+)
 from pace_sim2real.utils.excitation import chirp, steps
 from pace_sim2real.utils.joint_properties import write_joint_properties_to_sim, write_joint_state_to_sim
 
@@ -124,6 +130,7 @@ def main():
     dof_vel_buffer = torch.zeros(num_steps, len(joint_ids), device=env.unwrapped.device)
     tau_buffer = torch.zeros(num_steps, len(joint_ids), device=env.unwrapped.device)
     clip_active_buffer = torch.zeros(num_steps, len(joint_ids), dtype=torch.bool, device=env.unwrapped.device)
+    clip_at_limit_buffer = torch.zeros_like(clip_active_buffer)
     time_data = t
     while simulation_app.is_running():
         # run everything in inference mode
@@ -139,6 +146,7 @@ def main():
             # torque applied during this step (synthetic tau_est), and whether the envelope clipped the PD torque
             tau_buffer[counter, :] = read_delayed_effort(articulation, joint_ids)[0]
             clip_active_buffer[counter, :] = read_clip_active(articulation, joint_ids)[0]
+            clip_at_limit_buffer[counter, :] = read_clip_at_effort_limit(articulation, joint_ids)[0]
             counter += 1
             if counter % 400 == 0:
                 print(f"[INFO]: Step {counter/sample_rate} seconds")
@@ -151,15 +159,23 @@ def main():
     from time import sleep
     sleep(1)  # wait a bit for everything to settle
 
-    # envelope coverage per joint: the clip must stay inactive on chirps and be active on steps
-    print(f"[INFO]: {args_cli.excitation}: joint, peak |qd| [rad/s], corner speed [rad/s], clip-active samples")
+    # envelope coverage per joint: the clip must stay inactive on chirps; on steps, only the samples on the
+    # torque-speed line carry information about the motor constants, the ones at the effort limit do not
+    on_line_buffer = clip_active_buffer & ~clip_at_limit_buffer
+    print(f"[INFO]: {args_cli.excitation}: envelope coverage per joint")
+    print(f"  {'joint':<16} {'peak |qd|':>9} {'corner':>7} {'on speed line':>14} {'|qd| on line':>13} {'at effort limit':>16}")
     for actuator, columns in actuator_groups(articulation, joint_ids):
         if not hasattr(actuator, "_saturation_effort"):
             continue
         corner = actuator.actuator_velocity_limit[0] * (1 - actuator.actuator_effort_limit[0] / actuator._saturation_effort[0])
         for j, col in enumerate(columns.tolist()):
-            print(f"  {joint_order[col]:<16} {dof_vel_buffer[:, col].abs().max().item():7.2f} {corner[j].item():7.2f}"
-                  f" {clip_active_buffer[:, col].float().mean().item():8.2%}")
+            on_line = on_line_buffer[:, col]
+            speeds = dof_vel_buffer[on_line, col].abs()
+            speed_range = f"{speeds.min().item():.1f}-{speeds.max().item():.1f}" if on_line.any() else "-"
+            print(f"  {joint_order[col]:<16} {dof_vel_buffer[:, col].abs().max().item():9.2f} {corner[j].item():7.2f}"
+                  f" {int(on_line.sum()):6d} ({on_line.float().mean().item():5.1%}) {speed_range:>13}"
+                  f" {int(clip_at_limit_buffer[:, col].sum()):7d} ({clip_at_limit_buffer[:, col].float().mean().item():5.1%})")
+    print("  speeds in rad/s; corner: speed above which the torque-speed line is below the effort limit")
 
     (data_dir).mkdir(parents=True, exist_ok=True)
     torch.save({
@@ -169,6 +185,7 @@ def main():
         "dof_vel": dof_vel_buffer.cpu(),
         "tau_est": tau_buffer.cpu(),
         "clip_active": clip_active_buffer.cpu(),
+        "clip_at_effort_limit": clip_at_limit_buffer.cpu(),
         "kp": kp.cpu(),
         "kd": kd.cpu(),
         "excitation": args_cli.excitation,
