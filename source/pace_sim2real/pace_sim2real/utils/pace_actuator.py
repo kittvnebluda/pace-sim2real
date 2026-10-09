@@ -13,7 +13,7 @@ from isaaclab.utils.types import ArticulationActions
 from isaaclab.utils import DelayBuffer
 
 if TYPE_CHECKING:
-    from .pace_actuator_cfg import PaceDCMotorCfg, PaceIdealPDActuatorCfg
+    from .pace_actuator_cfg import PaceDCMotorCfg, PaceDCMotorEnvelopeCfg, PaceIdealPDActuatorCfg
 
 
 class _PaceActuatorMixin:
@@ -61,6 +61,8 @@ class _PaceActuatorMixin:
         # compute actuator model with encoder bias added to joint positions (joint position in encoder frame, not simulation frame)
         control_action_sim = super().compute(control_action, joint_pos - self.encoder_bias, joint_vel)
         control_action_sim.joint_efforts = self.torques_delay_buffer.compute(control_action_sim.joint_efforts)
+        # torque that reaches the joint; Isaac Lab's applied_effort holds the clipped torque before the delay
+        self.delayed_effort = control_action_sim.joint_efforts
         return control_action_sim
 
 
@@ -74,3 +76,39 @@ class PaceIdealPDActuator(_PaceActuatorMixin, IdealPDActuator):
     """Pace ideal PD actuator (flat effort limit) with encoder bias and action delay."""
 
     cfg: PaceIdealPDActuatorCfg
+
+
+class PaceDCMotorEnvelope(PaceDCMotor):
+    """Pace DC motor whose torque-speed envelope is set by the motor constants.
+
+    With bus voltage V, torque constant c_tau [V/(N m)] and back-EMF constant c_omega [V s/rad],
+    the envelope is upper = min((V - c_omega * qd) / c_tau, effort limit) and
+    lower = max((-V - c_omega * qd) / c_tau, -effort limit). This is :class:`PaceDCMotor` with
+    saturation_effort = V / c_tau and actuator_velocity_limit = V / c_omega, so the clip, the
+    encoder bias and the delay are unchanged; only the parameterization differs.
+    """
+
+    cfg: PaceDCMotorEnvelopeCfg
+
+    def __init__(self, cfg: PaceDCMotorEnvelopeCfg, *args, **kwargs):
+        super().__init__(
+            cfg.replace(
+                saturation_effort=_divide(cfg.v_bus, cfg.c_tau),
+                actuator_velocity_limit=_divide(cfg.v_bus, cfg.c_omega),
+            ),
+            *args,
+            **kwargs,
+        )
+
+    def update_envelope(self, c_tau: torch.Tensor, c_omega: torch.Tensor):
+        """Set the motor constants, shape (num_envs, num_joints)."""
+        self._saturation_effort = self.cfg.v_bus / c_tau
+        self.actuator_velocity_limit = self.cfg.v_bus / c_omega
+        # DCMotor caches the speed where the envelope meets the effort limit at construction
+        self._vel_at_effort_lim = self.actuator_velocity_limit * (1 + self.actuator_effort_limit / self._saturation_effort)
+
+
+def _divide(numerator: float, value: dict[str, float] | float) -> dict[str, float] | float:
+    if isinstance(value, dict):
+        return {name: numerator / v for name, v in value.items()}
+    return numerator / value
