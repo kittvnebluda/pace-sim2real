@@ -1,4 +1,5 @@
 # ⚙️ PACE — Sim-to-Real Transfer for Legged Robots
+
 ![License](https://img.shields.io/badge/license-Apache%202.0-blue)
 ![Python](https://img.shields.io/badge/python-3.12-green)
 ![Status](https://img.shields.io/badge/status-active_development-orange)
@@ -66,7 +67,7 @@ Notable changes in Isaac Lab 3.0:
 
 The full PACE documentation is available online:
 
-👉 https://pace.filipbjelonic.com
+👉 <https://pace.filipbjelonic.com>
 
 This documentation site is built using **MkDocs** with the **Material for MkDocs** theme.
 
@@ -136,11 +137,33 @@ $PY scripts/pace/data_collection.py physics=newton_mjwarp
 $PY scripts/pace/fit.py --num_envs 1024 physics=newton_mjwarp
 ```
 
-* Fitted parameters are engine-specific: collect, fit and deploy on the same backend. With identical parameters, PhysX and Newton joint trajectories differ by up to ~7 mrad RMS.
-* Newton fits values in MuJoCo terms (`armature`, `damping`, `frictionloss`), so they are a starting point for mjlab, not an exact match (the model comes from USD, not your MJCF).
+* Fitted parameters are engine-specific: collect, fit and deploy on the same backend.
 * Newton has no dynamic friction; Coulomb friction is a single `frictionloss`.
-* Newton was ~10x faster per CMA-ES iteration in a 64-env test (1.3 s vs 14 s).
-* The preset is resolved by `parse_env_cfg`; building the env cfg directly and passing it to `gym.make` fails.
+
+---
+
+## 🐕 Two-stage fit: Aliengo
+
+`Isaac-Pace-Aliengo-v0` uses `PaceDCMotorEnvelope`, a PD actuator clipped by a DC-motor torque-speed envelope, and fits in two stages:
+
+1. **Stage 1:** the PACE parameters (armature, viscous and Coulomb friction, encoder bias, delay) on chirp data. Chirps stay below the envelope, so the motor constants do not matter here.
+2. **Stage 2:** with the stage-1 result frozen, the motor constants `c_omega` and `c_tau` per joint group (hip, thigh, knee) on step data. The steps drive the PD torque onto the torque-speed line.
+
+```bash
+# 1. collect chirp and step data (data/aliengo_sim/chirp_data.pt, step_data.pt)
+$PY scripts/pace/data_collection.py --task Isaac-Pace-Aliengo-v0 physics=newton_mjwarp
+$PY scripts/pace/data_collection.py --task Isaac-Pace-Aliengo-v0 --excitation step physics=newton_mjwarp
+
+# 2. stage 1 -> logs/pace/aliengo_sim/<timestamp>/
+$PY scripts/pace/fit.py --task Isaac-Pace-Aliengo-v0 physics=newton_mjwarp
+
+# 3. stage 2 freezes the latest mean_*.pt of the stage-1 run -> logs/pace/aliengo_sim/stage2/<timestamp>/
+$PY scripts/pace/fit.py --task Isaac-Pace-Aliengo-v0 --stage 2 --stage1_run logs/pace/aliengo_sim/<timestamp> physics=newton_mjwarp
+```
+
+* Check the coverage table that step collection prints: the envelope fit needs samples "on speed line" for every joint group. A group with none is not identifiable. Chirps should show 0% clipped samples.
+* Step and envelope settings live in `AliengoPaceCfg` (`self.step`, `self.envelope`) and can be overridden with Hydra, e.g. `env.sim2real.step.kd=2.0` or `env.sim2real.envelope.data_dir=aliengo_sim/other_step_data.pt`. Data collection always writes `<excitation>_data.pt`, so rename the file before recording a variant.
+* The default actuator truth and steps are synthetic (sim-to-sim). For real data, place the recordings in `data/aliengo_sim/` with the same keys: `time`, `des_dof_pos`, `dof_pos`, plus `tau_est` for stage 2 and optionally the recording gains `kp` and `kd`.
 
 ---
 
@@ -173,9 +196,9 @@ See the LICENSE file for details.
 
 The PACE project is actively maintained by:
 
-- Filip Bjelonic (ETH Zurich, RSL)
-- René Zurbrügg (ETH Zurich, RSL)
-- Oliver Fischer (ETH Zurich, RSL)
+* Filip Bjelonic (ETH Zurich, RSL)
+* René Zurbrügg (ETH Zurich, RSL)
+* Oliver Fischer (ETH Zurich, RSL)
 
 The maintainers are responsible for reviewing contributions, managing issues, and guiding the technical direction of the framework.
 
@@ -287,7 +310,6 @@ The paper has been accepted for publication in **The International Journal of Ro
 [![PACE Star History](https://raw.githubusercontent.com/leggedrobotics/pace-sim2real/star-history-data/star-history.svg)](
   https://pace.filipbjelonic.com/star-history/
 )
-
 
 ---
 
